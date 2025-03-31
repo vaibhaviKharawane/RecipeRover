@@ -31,6 +31,12 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
   const { data: recipe, isLoading } = useQuery({
     queryKey: recipeId ? ['/api/recipes', recipeId] : [''],
     enabled: !!recipeId && isOpen,
+    queryFn: async ({ queryKey }) => {
+      if (!queryKey[1]) return null;
+      const response = await fetch(`/api/recipes/${queryKey[1]}`);
+      if (!response.ok) throw new Error('Failed to fetch recipe');
+      return response.json();
+    }
   });
 
   // Fetch similar recipes (in a real app this would be from an API)
