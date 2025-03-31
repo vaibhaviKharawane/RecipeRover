@@ -97,7 +97,7 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
       return;
     }
     
-    if ('speechSynthesis' in window && recipe) {
+    if ('speechSynthesis' in window && recipe && recipe.instructions) {
       setIsReading(true);
       const speech = new SpeechSynthesisUtterance();
       speech.text = recipe.instructions;
@@ -112,8 +112,10 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
       window.speechSynthesis.speak(speech);
     } else {
       toast({
-        title: "Feature not supported",
-        description: "Your browser does not support text-to-speech",
+        title: recipe && !recipe.instructions ? "No instructions available" : "Feature not supported",
+        description: recipe && !recipe.instructions ? 
+          "This recipe doesn't have any instructions to read" : 
+          "Your browser does not support text-to-speech",
         variant: "destructive",
       });
     }
@@ -210,7 +212,7 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
               <Card className="bg-background p-4 mb-6">
                 <h3 className="font-semibold text-lg mb-3">Ingredients</h3>
                 <ul className="space-y-2">
-                  {recipe.ingredients.map((ingredient, index) => (
+                  {recipe.ingredients && recipe.ingredients.map((ingredient, index) => (
                     <li key={index} className="flex items-start">
                       <Check className="h-4 w-4 mr-2 mt-1 text-secondary" />
                       <span className="text-muted-foreground">{ingredient}</span>
@@ -244,7 +246,7 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
                   </Button>
                 </div>
                 <div className="space-y-4 text-muted-foreground">
-                  {recipe.instructions.split('\n').map((paragraph, index) => (
+                  {recipe.instructions && recipe.instructions.split('\n').map((paragraph, index) => (
                     <p key={index}>{paragraph}</p>
                   ))}
                 </div>
