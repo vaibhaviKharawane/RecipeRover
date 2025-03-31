@@ -59,9 +59,6 @@ export default function Navbar({ onLogin, onSignup }: NavbarProps) {
               <Link href="/favorites">
                 <a className="border-transparent text-gray-100 hover:border-gray-200 hover:text-white px-1 pt-1 border-b-2 font-medium">Favorites</a>
               </Link>
-              <Link href="/browse">
-                <a className="border-transparent text-gray-100 hover:border-gray-200 hover:text-white px-1 pt-1 border-b-2 font-medium">Browse</a>
-              </Link>
             </div>
           </div>
           <div className="flex items-center">
