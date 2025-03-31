@@ -18,10 +18,19 @@ export default function Favorites() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isSignupModalOpen, setIsSignupModalOpen] = useState(false);
 
-  // Fetch all recipes to filter favorites
-  const { data: allRecipes, isLoading } = useQuery({
+  // Fetch all recipes and user data to properly filter favorites
+  const { data: allRecipes, isLoading: isLoadingRecipes } = useQuery({
     queryKey: ['/api/recipes'],
   });
+  
+  // Fetch user data to make sure we have the latest favorites
+  const { data: userData, isLoading: isLoadingUser } = useQuery({
+    queryKey: ['/api/auth/user'],
+    enabled: !!user, // Only run this query if user is logged in
+  });
+
+  // Combine loading states
+  const isLoading = isLoadingRecipes || isLoadingUser;
 
   const handleViewRecipe = (id: string) => {
     setSelectedRecipeId(id);
@@ -81,8 +90,10 @@ export default function Favorites() {
   }
 
   // Filter recipes to show only user's favorites
+  // Use userData if available (it's the most up-to-date), otherwise fall back to user from context
+  const currentUser = userData || user;
   const favoriteRecipes = allRecipes?.filter(recipe => 
-    user.favorites.includes(recipe.mongoId)
+    currentUser?.favorites?.includes(recipe.mongoId)
   ) || [];
 
   return (

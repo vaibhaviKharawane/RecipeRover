@@ -29,7 +29,7 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
 
   // Fetch recipe details
   const { data: recipe, isLoading } = useQuery({
-    queryKey: recipeId ? [`/api/recipes/${recipeId}`] : null,
+    queryKey: recipeId ? ['/api/recipes', recipeId] : [''],
     enabled: !!recipeId && isOpen,
   });
 

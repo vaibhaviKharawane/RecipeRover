@@ -129,7 +129,7 @@ export default function LoginModal({ isOpen, onClose, onSwitchToSignup }: LoginM
         {showForgotPassword ? (
           <form onSubmit={handleForgotPassword} className="space-y-4">
             <div className="space-y-2">
-              <FormLabel>Email</FormLabel>
+              <label className="text-sm font-medium">Email</label>
               <Input 
                 type="email" 
                 placeholder="Enter your email address" 
