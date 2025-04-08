@@ -1,16 +1,10 @@
-import { MongoClient, ServerApiVersion } from 'mongodb';
+import { MongoClient } from 'mongodb';
 import { Recipe, User } from '@shared/schema';
 
 const uri = "mongodb+srv://bhavana-user:7822bhavana@cluster0.nmkgyei.mongodb.net/recipeDB?retryWrites=true&w=majority&appName=Cluster0";
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  }
-});
+// Create a MongoClient - without using the API version that's causing issues
+const client = new MongoClient(uri);
 
 // Connect to MongoDB
 export async function connectToDatabase() {
