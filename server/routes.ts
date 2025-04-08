@@ -20,14 +20,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // We're using MongoDB Atlas now, so we don't need to load recipes from JSON
   console.log("Using MongoDB Atlas for recipe data");
 
-  // Setup session
+  // Setup session with longer duration for persistence
   const SessionStore = MemoryStore(session);
   app.use(session({
-    secret: 'comfort-bites-secret',
+    secret: 'comfort-bites-secret-key',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false, maxAge: 86400000 },
-    store: new SessionStore({ checkPeriod: 86400000 })
+    cookie: { 
+      secure: false, 
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    },
+    store: new SessionStore({ 
+      checkPeriod: 86400000, // 1 day cleanup
+      ttl: 30 * 24 * 60 * 60 // 30 days ttl
+    })
   }));
 
   // Setup passport for authentication
@@ -36,31 +42,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   passport.use(new LocalStrategy(async (username, password, done) => {
     try {
+      console.log(`Attempting login for user: ${username}`);
       const user = await storage.getUserByUsername(username);
+      
       if (!user) {
+        console.log(`No user found with username: ${username}`);
         return done(null, false, { message: 'Incorrect username.' });
       }
       
+      console.log(`Found user, checking password`);
       const isMatch = await bcrypt.compare(password, user.password);
+      
       if (!isMatch) {
+        console.log(`Password does not match for user: ${username}`);
         return done(null, false, { message: 'Incorrect password.' });
       }
       
+      console.log(`Login successful for user: ${username}`);
       return done(null, user);
     } catch (error) {
+      console.error(`Login error:`, error);
       return done(error);
     }
   }));
 
   passport.serializeUser((user: any, done) => {
+    console.log(`Serializing user: ${user.username} with id: ${user.id}`);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
+      console.log(`Deserializing user with id: ${id}`);
       const user = await storage.getUser(id);
+      
+      if (!user) {
+        console.log(`No user found with id: ${id} during deserialization`);
+        return done(null, false);
+      }
+      
+      console.log(`Found user during deserialization: ${user.username}`);
       done(null, user);
     } catch (error) {
+      console.error(`Deserialization error:`, error);
       done(error);
     }
   });
@@ -68,30 +92,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
   app.post('/api/auth/signup', async (req, res) => {
     try {
+      console.log('Received signup request:', req.body);
       const validatedData = insertUserSchema.parse(req.body);
       
       // Check if username already exists
       const existingUser = await storage.getUserByUsername(validatedData.username);
       if (existingUser) {
+        console.log(`Signup failed: Username ${validatedData.username} already exists`);
         return res.status(400).json({ message: 'Username already exists' });
       }
 
-      // Hash password
-      const salt = await bcrypt.genSalt(10);
-      validatedData.password = await bcrypt.hash(validatedData.password, salt);
+      console.log(`Creating new user with username: ${validatedData.username}`);
       
+      // Create the user (password hashing is done in the storage implementation)
       const user = await storage.createUser(validatedData);
       
       // Exclude password from response
       const { password, ...userWithoutPassword } = user;
       
+      console.log(`User created, logging in: ${validatedData.username}`);
+      
       req.login(user, (err) => {
         if (err) {
+          console.error(`Error during automatic login after signup:`, err);
           return res.status(500).json({ message: 'Error during login' });
         }
+        console.log(`User logged in after signup: ${validatedData.username}`);
         return res.status(201).json(userWithoutPassword);
       });
     } catch (error) {
+      console.error(`Signup error:`, error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: error.errors[0].message });
       }
@@ -101,27 +131,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/auth/login', (req, res, next) => {
     try {
+      console.log('Received login request:', req.body);
       loginUserSchema.parse(req.body);
       
       passport.authenticate('local', (err, user, info) => {
         if (err) {
+          console.error(`Login error:`, err);
           return next(err);
         }
         if (!user) {
-          return res.status(401).json({ message: info.message });
+          console.log(`Login failed: ${info?.message || 'Unknown reason'}`);
+          return res.status(401).json({ message: info?.message || 'Authentication failed' });
         }
+        
+        console.log(`User authenticated, establishing session for: ${user.username}`);
         
         req.login(user, (err) => {
           if (err) {
+            console.error(`Error during login session establishment:`, err);
             return next(err);
           }
           
           // Exclude password from response
           const { password, ...userWithoutPassword } = user;
+          console.log(`User successfully logged in: ${user.username}`);
           return res.json(userWithoutPassword);
         });
       })(req, res, next);
     } catch (error) {
+      console.error(`Login validation error:`, error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: error.errors[0].message });
       }

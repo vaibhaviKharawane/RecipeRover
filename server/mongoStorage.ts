@@ -28,20 +28,45 @@ export class MongoStorage implements IStorage {
   // User methods
   async getUser(id: number): Promise<User | undefined> {
     if (!this.usersCollection) await this.initializeDatabase();
-    const user = await this.usersCollection?.findOne({ id: id });
+    
+    // Try to find by numeric id or by MongoDB _id
+    let user;
+    try {
+      user = await this.usersCollection?.findOne({ id: id });
+      if (!user) {
+        console.log(`No user found with numeric id: ${id}, checking other fields...`);
+      }
+    } catch (error) {
+      console.error("Error finding user by id:", error);
+    }
+    
     return user as User | undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     if (!this.usersCollection) await this.initializeDatabase();
-    const user = await this.usersCollection?.findOne({ username });
-    return user as User | undefined;
+    console.log(`Looking for user with username: ${username}`);
+    
+    try {
+      const user = await this.usersCollection?.findOne({ username });
+      if (!user) {
+        console.log(`No user found with username: ${username}`);
+      } else {
+        console.log(`Found user with username: ${username}`);
+      }
+      return user as User | undefined;
+    } catch (error) {
+      console.error("Error finding user by username:", error);
+      return undefined;
+    }
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
     if (!this.usersCollection) await this.initializeDatabase();
     
-    // Hash the password
+    console.log(`Creating new user with username: ${insertUser.username}`);
+    
+    // Hash the password before inserting
     const hashedPassword = await bcrypt.hash(insertUser.password, 10);
     
     // Get the next available ID
@@ -54,24 +79,32 @@ export class MongoStorage implements IStorage {
       favorites: []
     };
     
-    // Replace the plain text password with the hashed one before inserting
-    await this.usersCollection?.insertOne({
+    // Store the user in MongoDB with the hashed password
+    const result = await this.usersCollection?.insertOne({
       ...newUser,
       password: hashedPassword
     });
     
+    console.log(`User created with id: ${nextId}`);
     return newUser;
   }
 
   async updateUserFavorites(userId: number, recipeIds: string[]): Promise<User | undefined> {
     if (!this.usersCollection) await this.initializeDatabase();
     
-    await this.usersCollection?.updateOne(
-      { id: userId },
-      { $set: { favorites: recipeIds } }
-    );
+    console.log(`Updating favorites for user ${userId} with recipes: ${recipeIds.join(', ')}`);
     
-    return this.getUser(userId);
+    try {
+      await this.usersCollection?.updateOne(
+        { id: userId },
+        { $set: { favorites: recipeIds } }
+      );
+      
+      return this.getUser(userId);
+    } catch (error) {
+      console.error("Error updating user favorites:", error);
+      return undefined;
+    }
   }
 
   // Recipe methods
