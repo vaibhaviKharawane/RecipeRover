@@ -17,21 +17,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Load recipes from JSON
-  const recipesPath = path.resolve(__dirname, "../attached_assets/recipeDB.recipes.json");
-  if (fs.existsSync(recipesPath)) {
-    const recipesJson = fs.readFileSync(recipesPath, 'utf-8');
-    try {
-      const recipes = JSON.parse(recipesJson);
-      // Load all recipes into memory
-      await (storage as any).loadRecipesFromJson(recipes);
-      console.log(`Loaded ${recipes.length} recipes from JSON`);
-    } catch (e) {
-      console.error("Error parsing recipes JSON:", e);
-    }
-  } else {
-    console.error("Recipes JSON file not found");
-  }
+  // We're using MongoDB Atlas now, so we don't need to load recipes from JSON
+  console.log("Using MongoDB Atlas for recipe data");
 
   // Setup session
   const SessionStore = MemoryStore(session);

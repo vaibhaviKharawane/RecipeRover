@@ -158,4 +158,7 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+import { MongoStorage } from './mongoStorage';
+
+// Use MongoStorage instead of MemStorage to connect to MongoDB Atlas
+export const storage = new MongoStorage();
