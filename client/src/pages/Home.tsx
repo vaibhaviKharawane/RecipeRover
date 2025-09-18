@@ -45,12 +45,12 @@ export default function Home() {
   }
 
   // Fetch recipes based on filters
-  const { data: recipes, isLoading } = useQuery({
+  const { data: recipes, isLoading } = useQuery<any[]>({
     queryKey: [`/api/recipes?${queryParams.toString()}`],
   });
 
   // Filter recipes by search term (client-side filtering)
-  const filteredRecipes = recipes?.filter(recipe => 
+  const filteredRecipes = recipes?.filter((recipe: any) => 
     searchTerm ? recipe.name.toLowerCase().includes(searchTerm.toLowerCase()) : true
   );
 
@@ -91,7 +91,7 @@ export default function Home() {
         </div>
         
         <main className="flex-1 p-4 overflow-y-auto">
-          <div className="max-w-5xl mx-auto">
+          <div className="app-container">
             {/* Mobile filter toggle */}
             <div className="md:hidden mb-4">
               <Sheet>
@@ -112,7 +112,7 @@ export default function Home() {
               <Input
                 type="text"
                 placeholder="Search recipes..."
-                className="w-full pl-12 pr-4 py-6"
+                className="main-search pl-12"
                 value={searchTerm}
                 onChange={handleSearchChange}
               />

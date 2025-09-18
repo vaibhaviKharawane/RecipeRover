@@ -128,7 +128,7 @@ export default function SignupModal({ isOpen, onClose, onSwitchToLogin }: Signup
             
             <Button 
               type="submit" 
-              className="w-full bg-secondary hover:bg-secondary/90 text-white"
+              className="w-full bg-primary hover:bg-primary/90 text-white"
               disabled={isSubmitting}
             >
               {isSubmitting ? "Creating account..." : "Sign Up"}

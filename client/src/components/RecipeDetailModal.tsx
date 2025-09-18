@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRecipes } from "@/context/RecipeContext";
 import { useAuth } from "@/context/AuthContext";
@@ -12,7 +12,22 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { X, Heart, Share, Clock, Volume2, VolumeX, Utensils, Globe, Check } from "lucide-react";
+import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+
+// 👉 define Recipe type
+interface Recipe {
+  mongoId: string;
+  name: string;
+  imageUrl: string;
+  totalTimeMinutes: number;
+  cuisine: string;
+  dietCategory: string;
+  cookingMethod: string;
+  ingredients: string[];
+  instructions: string;
+  liked: boolean;
+}
 
 interface RecipeDetailModalProps {
   recipeId: string | null;
@@ -23,12 +38,14 @@ interface RecipeDetailModalProps {
 export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeDetailModalProps) {
   const [isReading, setIsReading] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const { toggleLike } = useRecipes();
   const { user } = useAuth();
   const { toast } = useToast();
 
   // Fetch recipe details
-  const { data: recipe, isLoading } = useQuery({
+  const { data: recipe, isLoading } = useQuery<Recipe>({
     queryKey: recipeId ? ['/api/recipes', recipeId] : [''],
     enabled: !!recipeId && isOpen,
     queryFn: async ({ queryKey }) => {
@@ -39,14 +56,19 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
     }
   });
 
-  // Fetch similar recipes (in a real app this would be from an API)
-  const { data: allRecipes } = useQuery({
+  // Fetch all recipes
+  const { data: allRecipes } = useQuery<Recipe[]>({
     queryKey: ['/api/recipes'],
     enabled: !!recipeId && isOpen,
+    queryFn: async () => {
+      const response = await fetch('/api/recipes');
+      if (!response.ok) throw new Error('Failed to fetch recipes');
+      return response.json();
+    }
   });
 
   const similarRecipes = allRecipes
-    ?.filter(r => r.mongoId !== recipeId && (
+    ?.filter((r: Recipe) => r.mongoId !== recipeId && (
       r.cuisine === recipe?.cuisine || 
       r.dietCategory === recipe?.dietCategory ||
       r.cookingMethod === recipe?.cookingMethod
@@ -70,6 +92,7 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
     }
 
     setIsLiked(!isLiked);
+    if (!recipe) return; 
     await toggleLike(recipe.mongoId, !isLiked);
   };
 
@@ -79,7 +102,7 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
         title: recipe?.name,
         text: `Check out this delicious recipe: ${recipe?.name}`,
         url: window.location.href,
-      }).catch(err => {
+      }).catch(() => {
         toast({
           title: "Sharing failed",
           description: "Could not share this recipe",
@@ -87,7 +110,6 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
         });
       });
     } else {
-      // Fallback
       navigator.clipboard.writeText(window.location.href);
       toast({
         title: "Link copied",
@@ -103,19 +125,16 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
       return;
     }
     
-    if ('speechSynthesis' in window && recipe && recipe.instructions) {
+    if ('speechSynthesis' in window && recipe?.instructions) {
       setIsReading(true);
-      const speech = new SpeechSynthesisUtterance();
-      speech.text = recipe.instructions;
-      speech.volume = 1;
-      speech.rate = 1;
-      speech.pitch = 1;
-      
-      speech.onend = () => {
-        setIsReading(false);
-      };
-      
-      window.speechSynthesis.speak(speech);
+      const utterance = new SpeechSynthesisUtterance(recipe.instructions);
+      utterance.volume = 1;
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.onend = () => setIsReading(false);
+      // store in ref so we can cancel from other handlers
+      ttsRef.current = utterance;
+      window.speechSynthesis.speak(utterance);
     } else {
       toast({
         title: recipe && !recipe.instructions ? "No instructions available" : "Feature not supported",
@@ -127,13 +146,53 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
     }
   };
 
-  // Clean up speech synthesis when modal closes
   useEffect(() => {
     if (!isOpen && isReading) {
       window.speechSynthesis.cancel();
       setIsReading(false);
+      if (ttsRef.current) {
+        ttsRef.current.onend = null;
+        ttsRef.current = null;
+      }
     }
   }, [isOpen, isReading]);
+
+  // Keep a ref to the current utterance for cleanup
+  const ttsRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // Prevent background scrolling when modal is open
+  const previousBodyOverflow = useRef<string | null>(null);
+  useEffect(() => {
+    if (isOpen) {
+      previousBodyOverflow.current = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    } else {
+      if (previousBodyOverflow.current !== null) {
+        document.body.style.overflow = previousBodyOverflow.current;
+        previousBodyOverflow.current = null;
+      }
+    }
+
+    return () => {
+      if (previousBodyOverflow.current !== null) {
+        document.body.style.overflow = previousBodyOverflow.current;
+        previousBodyOverflow.current = null;
+      } else {
+        document.body.style.overflow = '';
+      }
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    return () => {
+      // component unmount cleanup
+      window.speechSynthesis.cancel();
+      if (ttsRef.current) {
+        ttsRef.current.onend = null;
+        ttsRef.current = null;
+      }
+    };
+  }, []);
 
   if (isLoading || !recipe) {
     return (
@@ -171,12 +230,14 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
           <div className="flex flex-col md:flex-row gap-6">
             <div className="md:w-1/2">
               <div className="rounded-lg overflow-hidden mb-4">
-                <img 
-                  src={recipe.imageUrl} 
-                  alt={recipe.name} 
+                <img
+                  src={recipe.imageUrl || `/api/photo?w=1200&h=800&q=${encodeURIComponent(recipe.name)}`}
+                  alt={recipe.name}
                   className="w-full h-auto"
                   onError={(e) => {
-                    e.currentTarget.src = "https://via.placeholder.com/400x300?text=ComfortBites";
+                    const t = e.currentTarget as HTMLImageElement;
+                    t.onerror = null;
+                    t.src = `/api/placeholder?text=${encodeURIComponent(recipe.name)}`;
                   }}
                 />
               </div>
@@ -207,18 +268,60 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
                 </Button>
                 <Button 
                   variant="outline" 
-                  className="border-accent text-accent hover:bg-accent/10"
+                  className="border-primary text-primary hover:bg-primary/10"
                   onClick={handleShareRecipe}
                 >
                   <Share className="h-4 w-4 mr-2" />
                   Share
                 </Button>
               </div>
+
+              {user && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-muted-foreground mb-2">Upload image</label>
+                  <div className="flex items-center gap-2">
+                    <input ref={fileRef} type="file" accept="image/*" className="" />
+                    <Button
+                      onClick={async () => {
+                        if (!recipeId) return;
+                        const files = fileRef.current?.files;
+                        if (!files || files.length === 0) {
+                          toast({ title: 'No file selected', variant: 'destructive' });
+                          return;
+                        }
+                        const file = files[0];
+                        const fd = new FormData();
+                        fd.append('image', file);
+                        setUploading(true);
+                        try {
+                          const res = await fetch(`/api/recipes/${recipeId}/image`, {
+                            method: 'POST',
+                            body: fd,
+                            credentials: 'include'
+                          });
+                          if (!res.ok) throw new Error(await res.text());
+                          const updated = await res.json();
+                          toast({ title: 'Image uploaded', description: 'Recipe image updated' });
+                          // Force refetch of the recipe by invalidating queries; simple approach: reload page route
+                          window.location.reload();
+                        } catch (err) {
+                          toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+                        } finally {
+                          setUploading(false);
+                        }
+                      }}
+                      disabled={uploading}
+                    >
+                      {uploading ? 'Uploading...' : 'Upload'}
+                    </Button>
+                  </div>
+                </div>
+              )}
               
               <Card className="bg-background p-4 mb-6">
                 <h3 className="font-semibold text-lg mb-3">Ingredients</h3>
                 <ul className="space-y-2">
-                  {recipe.ingredients && recipe.ingredients.map((ingredient, index) => (
+                  {recipe.ingredients.map((ingredient, index) => (
                     <li key={index} className="flex items-start">
                       <Check className="h-4 w-4 mr-2 mt-1 text-secondary" />
                       <span className="text-muted-foreground">{ingredient}</span>
@@ -235,7 +338,7 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
                   <Button 
                     variant="ghost" 
                     size="sm" 
-                    className="text-accent hover:text-accent/80 hover:bg-accent/10"
+                    className="text-primary hover:text-primary/80 hover:bg-primary/10"
                     onClick={handleReadInstructions}
                   >
                     {isReading ? (
@@ -252,7 +355,7 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
                   </Button>
                 </div>
                 <div className="space-y-4 text-muted-foreground">
-                  {recipe.instructions && recipe.instructions.split('\n').map((paragraph, index) => (
+                  {recipe.instructions.split('\n').map((paragraph, index) => (
                     <p key={index}>{paragraph}</p>
                   ))}
                 </div>
@@ -262,35 +365,14 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
                 <Card className="bg-background p-4">
                   <h3 className="font-semibold text-lg mb-3">Similar Recipes</h3>
                   <div className="space-y-3">
-                    {similarRecipes.map(similarRecipe => (
-                      <div 
-                        key={similarRecipe.mongoId} 
-                        className="flex items-center p-2 hover:bg-accent/5 rounded-md cursor-pointer"
-                        onClick={() => {
-                          if (isReading) {
-                            window.speechSynthesis.cancel();
-                          }
-                          onClose();
-                          // This would navigate to the recipe in a full implementation
-                          window.location.href = `/recipe/${similarRecipe.mongoId}`;
-                        }}
-                      >
-                        <img 
-                          src={similarRecipe.imageUrl} 
-                          alt={similarRecipe.name} 
-                          className="w-16 h-16 object-cover rounded-md mr-3"
-                          onError={(e) => {
-                            e.currentTarget.src = "https://via.placeholder.com/64x64?text=CB";
-                          }}
-                        />
-                        <div>
-                          <h4 className="font-medium">{similarRecipe.name}</h4>
-                          <p className="text-sm text-muted-foreground">
-                            {similarRecipe.cuisine} • {similarRecipe.totalTimeMinutes} mins
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                                      {similarRecipes.map((similarRecipe) => (
+                                        <SimilarRecipeItem
+                                          key={similarRecipe.mongoId}
+                                          similarRecipe={similarRecipe}
+                                          onClose={onClose}
+                                          isReading={isReading}
+                                        />
+                                      ))}
                   </div>
                 </Card>
               )}
@@ -299,5 +381,40 @@ export default function RecipeDetailModal({ recipeId, isOpen, onClose }: RecipeD
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// Small sub-component for similar recipes so we can perform client-side navigation
+function SimilarRecipeItem({ similarRecipe, onClose, isReading }: { similarRecipe: Recipe; onClose: () => void; isReading: boolean }) {
+  const [, setLocation] = useLocation();
+
+  const handleClick = () => {
+    if (isReading) {
+      window.speechSynthesis.cancel();
+    }
+    onClose();
+    // Use client-side navigation to the recipe route so the router opens the modal
+    setLocation(`/recipe/${similarRecipe.mongoId}`);
+  };
+
+  return (
+    <div className="flex items-center p-2 hover:bg-accent/5 rounded-md cursor-pointer" onClick={handleClick}>
+      <img
+        src={similarRecipe.imageUrl || `/api/photo?w=160&h=160&q=${encodeURIComponent(similarRecipe.name)}`}
+        alt={similarRecipe.name}
+        className="w-16 h-16 object-cover rounded-md mr-3"
+        onError={(e) => {
+          const t = e.currentTarget as HTMLImageElement;
+          t.onerror = null;
+          t.src = `/api/placeholder?text=${encodeURIComponent(similarRecipe.name)}`;
+        }}
+      />
+      <div>
+        <h4 className="font-medium">{similarRecipe.name}</h4>
+        <p className="text-sm text-muted-foreground">
+          {similarRecipe.cuisine} • {similarRecipe.totalTimeMinutes} mins
+        </p>
+      </div>
+    </div>
   );
 }

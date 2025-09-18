@@ -232,6 +232,59 @@ export class MongoStorage implements IStorage {
     return undefined;
   }
 
+  async setRecipeImageUrl(id: string, imageUrl: string): Promise<Recipe | undefined> {
+    if (!this.recipesCollection) await this.initializeDatabase();
+
+    try {
+      // Try to update by _id if possible
+      let objectId;
+      try {
+        objectId = new ObjectId(id);
+      } catch (err) {
+        objectId = null;
+      }
+
+      let result;
+      if (objectId) {
+        result = await this.recipesCollection?.findOneAndUpdate(
+          { _id: objectId },
+          { $set: { image_url: imageUrl } },
+          { returnDocument: 'after' }
+        );
+      } else {
+        result = await this.recipesCollection?.findOneAndUpdate(
+          { mongoId: id },
+          { $set: { image_url: imageUrl } },
+          { returnDocument: 'after' }
+        );
+      }
+
+      const updated = result?.value;
+      if (!updated) return undefined;
+
+      return {
+        id: 1,
+        mongoId: updated._id.toString(),
+        name: updated.name || '',
+        ingredients: updated.ingredients || [],
+        cleanedIngredients: updated.cleaned_ingredients || [],
+        totalTimeMinutes: updated.total_time_mins || 0,
+        cuisine: updated.cuisine || '',
+        instructions: updated.instructions || '',
+        url: updated.url || '',
+        imageUrl: updated.image_url || '',
+        ingredientCount: updated.ingredient_count || 0,
+        dietCategory: updated.diet_category || '',
+        mealType: updated.meal_type || '',
+        cookingMethod: updated.cooking_method || '',
+        liked: false
+      } as Recipe;
+    } catch (error) {
+      console.error('Error setting recipe image URL:', error);
+      return undefined;
+    }
+  }
+
   async getRecipeFilters(): Promise<{
     dietCategories: string[];
     ingredients: string[];
@@ -251,7 +304,7 @@ export class MongoStorage implements IStorage {
       const cuisines = await this.recipesCollection?.distinct('cuisine');
       
       // For ingredients, we'll sample from cleaned ingredients to get a reasonable list
-      const sampleRecipes = await this.recipesCollection?.find().limit(1000).toArray();
+      const sampleRecipes = await this.recipesCollection?.find().limit(6000).toArray();
       const ingredientSet = new Set<string>();
       
       sampleRecipes?.forEach(recipe => {

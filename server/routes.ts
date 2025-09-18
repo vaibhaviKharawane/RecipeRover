@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import express, { type Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { filterSchema, loginUserSchema, insertUserSchema } from "@shared/schema";
@@ -12,11 +12,67 @@ import MemoryStore from "memorystore";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import bcrypt from "bcryptjs";
+// @ts-ignore: optional dependency may not have types in this workspace
+let multer: any = null;
+let sharp: any = null;
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // ensure uploads directory exists
+  const uploadsDir = path.join(__dirname, '..', 'uploads');
+  try {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  } catch (err) {
+    console.warn('Could not ensure uploads directory:', err);
+  }
+
+  // serve uploaded files statically at /uploads
+  app.use('/uploads', express.static(uploadsDir));
+
+  // Configure multer to store uploads on disk
+  // Try to dynamically load multer and sharp so server can run even if deps aren't installed
+  try {
+    // Dynamically import multer and normalize default export in case of ESM/CJS interop
+    // @ts-ignore: optional dependency
+    const _multer = await import('multer');
+    // Some environments expose the function as default when using dynamic import
+    // so prefer .default if present.
+    // @ts-ignore
+    multer = _multer && (_multer.default || _multer);
+  } catch (err) {
+    multer = null;
+    console.warn('multer not available - upload endpoints disabled');
+  }
+
+  try {
+    // Dynamically import sharp and normalize default export
+    // @ts-ignore: optional dependency
+    const _sharp = await import('sharp');
+    // @ts-ignore
+    sharp = _sharp && (_sharp.default || _sharp);
+  } catch (err) {
+    sharp = null;
+    console.warn('sharp not available - uploaded images will not be optimized');
+  }
+
+  let upload: any = null;
+  if (multer) {
+    const storageEngine = multer.diskStorage({
+      destination: function (_req: Request, _file: any, cb: any) {
+        cb(null, uploadsDir);
+      },
+      filename: function (_req: Request, file: any, cb: any) {
+        const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        const safe = file.originalname.replace(/[^a-zA-Z0-9.\-\_]/g, '_');
+        cb(null, `${unique}-${safe}`);
+      }
+    });
+
+    upload = multer({ storage: storageEngine });
+  }
   // We're using MongoDB Atlas now, so we don't need to load recipes from JSON
   console.log("Using MongoDB Atlas for recipe data");
 
@@ -134,7 +190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Received login request:', req.body);
       loginUserSchema.parse(req.body);
       
-      passport.authenticate('local', (err, user, info) => {
+      passport.authenticate('local', (err:any, user:any, info:any) => {
         if (err) {
           console.error(`Login error:`, err);
           return next(err);
@@ -239,7 +295,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!recipe) {
         return res.status(404).json({ message: 'Recipe not found' });
       }
-      
+      // Ensure instructions is a string to make TTS on the client reliable
+      if (!recipe.instructions || typeof recipe.instructions !== 'string') {
+        recipe.instructions = 'Instructions are not available for this recipe.';
+      }
+
       res.json(recipe);
     } catch (error) {
       return res.status(500).json({ message: 'Server error' });
@@ -302,6 +362,178 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const filters = await storage.getRecipeFilters();
       res.json(filters);
+    } catch (error) {
+      return res.status(500).json({ message: 'Server error' });
+    }
+  });
+
+  // Lightweight SVG placeholder generator — returns an SVG with the provided text
+  app.get('/api/placeholder', (req, res) => {
+    try {
+      const text = (req.query.text as string) || 'Recipe';
+      const width = 800;
+      const height = 600;
+      const bg = '#f3f4f6'; // light gray
+      const fg = '#374151'; // dark gray
+      const escaped = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="100%" height="100%" fill="${bg}" />
+  <g transform="translate(40, 40)">
+    <rect x="0" y="0" width="${width - 80}" height="${height - 80}" rx="12" fill="#ffffff" fill-opacity="0.6" />
+    <text x="20" y="70" font-family="Segoe UI, Roboto, Arial, sans-serif" font-size="40" fill="${fg}">${escaped}</text>
+    <text x="20" y="120" font-family="Segoe UI, Roboto, Arial, sans-serif" font-size="18" fill="#6b7280">Generated placeholder</text>
+  </g>
+</svg>`;
+
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.send(svg);
+    } catch (error) {
+      res.status(500).send('Error generating placeholder');
+    }
+  });
+
+  // Simple photo proxy/redirect to Unsplash Source to provide photographic fallbacks
+  app.get('/api/photo', async (req, res) => {
+    try {
+      const q = (req.query.q as string) || (req.query.query as string) || 'food';
+      const w = (req.query.w as string) || '800';
+      const h = (req.query.h as string) || '600';
+
+      // ensure cache dir
+      const cacheDir = path.join(uploadsDir, 'cache');
+      try { fs.mkdirSync(cacheDir, { recursive: true }); } catch (e) { /* ignore */ }
+
+      // create cache key
+      const crypto = await import('crypto');
+      const key = crypto.createHash('sha1').update(`${q}|${w}|${h}`).digest('hex');
+      const filename = `${key}.jpg`;
+      const cachedPath = path.join(cacheDir, filename);
+
+      // If cached already exists, redirect to static file
+      if (fs.existsSync(cachedPath)) {
+        return res.redirect(302, `/uploads/cache/${filename}`);
+      }
+
+      // Fetch image from Unsplash Source and save to cache
+      const unsplash = `https://source.unsplash.com/${w}x${h}/?${encodeURIComponent(q)}`;
+      // Determine fetch function (global fetch or node-fetch)
+      // @ts-ignore: optional dependency
+      const fetchModule: any = (global as any).fetch ? { default: (global as any).fetch } : await import('node-fetch').catch((e) => {
+        console.warn('node-fetch import failed:', e && e.message ? e.message : e);
+        return null;
+      });
+      const fetchFn: any = (fetchModule && (fetchModule.default || fetchModule)) || (global as any).fetch;
+      console.log('Fetching Unsplash:', unsplash, 'using fetchFn:', typeof fetchFn === 'function' ? 'function' : typeof fetchFn);
+      if (!fetchFn) {
+        console.error('No fetch function available on server to fetch Unsplash images');
+        return res.status(502).json({ message: 'Server cannot fetch remote photos (no fetch available)' });
+      }
+
+      let response: any;
+      try {
+        response = await fetchFn(unsplash);
+        console.log('Unsplash fetch response status:', response && response.status);
+      } catch (fetchErr) {
+        const fe: any = fetchErr;
+        console.error('Error fetching Unsplash image:', fe && fe.message ? fe.message : fe);
+        return res.status(502).json({ message: 'Failed to fetch photo from Unsplash', error: String(fe) });
+      }
+
+      if (!response || !response.ok) {
+        return res.status(502).json({ message: 'Failed to fetch photo from Unsplash' });
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      try {
+        fs.writeFileSync(cachedPath, buffer);
+        console.log('Wrote cached photo to', cachedPath);
+      } catch (writeErr) {
+        const we: any = writeErr;
+        console.error('Failed to write cached photo:', we && we.message ? we.message : we);
+        // Fall back to returning the image directly
+        res.setHeader('Content-Type', 'image/jpeg');
+        return res.send(buffer);
+      }
+
+      return res.redirect(302, `/uploads/cache/${filename}`);
+    } catch (error) {
+      console.error('Error in /api/photo:', error);
+      res.status(500).json({ message: 'Error generating photo redirect' });
+    }
+  });
+
+  // Upload image for a recipe (authenticated)
+  if (!upload) {
+    // If multer isn't available register a stub route so server doesn't crash.
+    app.post('/api/recipes/:id/image', (_req, res) => {
+      res.status(501).json({ message: 'Image upload not available on this server (missing multer).' });
+    });
+  } else {
+    app.post('/api/recipes/:id/image', upload.single('image'), async (req: any, res: Response) => {
+      try {
+        if (!req.isAuthenticated || !req.isAuthenticated()) {
+          return res.status(401).json({ message: 'Not authenticated' });
+        }
+
+        if (!req.file) {
+          return res.status(400).json({ message: 'No file uploaded' });
+        }
+
+        const uploadedPath = path.join(uploadsDir, req.file.filename);
+        // If sharp is available, process to optimized + thumb; otherwise keep original
+        if (sharp) {
+          try {
+            const parsed = path.parse(req.file.filename);
+            const optimizedName = `${parsed.name}-opt.jpg`;
+            const optimizedPath = path.join(uploadsDir, optimizedName);
+
+            await sharp(uploadedPath)
+              .resize({ width: 1600, withoutEnlargement: true })
+              .jpeg({ quality: 80 })
+              .toFile(optimizedPath);
+
+            const thumbName = `${parsed.name}-thumb.jpg`;
+            const thumbPath = path.join(uploadsDir, thumbName);
+            await sharp(optimizedPath).resize({ width: 400 }).jpeg({ quality: 70 }).toFile(thumbPath);
+
+            try { fs.unlinkSync(uploadedPath); } catch (e) { /* ignore */ }
+
+            const imageUrl = `/uploads/${optimizedName}`;
+            // @ts-ignore
+            const updated = await storage.setRecipeImageUrl(req.params.id, imageUrl);
+            if (!updated) return res.status(404).json({ message: 'Recipe not found' });
+            return res.json(updated);
+          } catch (procErr) {
+            console.error('Image processing failed:', procErr);
+            const imageUrl = `/uploads/${req.file.filename}`;
+            // @ts-ignore
+            const updated = await storage.setRecipeImageUrl(req.params.id, imageUrl);
+            if (!updated) return res.status(404).json({ message: 'Recipe not found' });
+            return res.json(updated);
+          }
+        } else {
+          const imageUrl = `/uploads/${req.file.filename}`;
+          // @ts-ignore
+          const updated = await storage.setRecipeImageUrl(req.params.id, imageUrl);
+          if (!updated) return res.status(404).json({ message: 'Recipe not found' });
+          return res.json(updated);
+        }
+      } catch (error) {
+        console.error('Error uploading recipe image:', error);
+        res.status(500).json({ message: 'Error uploading image' });
+      }
+    });
+  }
+
+  // Debug helper: return the first recipe raw for inspection
+  app.get('/api/debug/sample-recipe', async (req, res) => {
+    try {
+      const recipes = await storage.getRecipes();
+      if (!recipes || recipes.length === 0) return res.status(404).json({ message: 'No recipes available' });
+      res.json(recipes[0]);
     } catch (error) {
       return res.status(500).json({ message: 'Server error' });
     }

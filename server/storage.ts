@@ -15,6 +15,7 @@ export interface IStorage {
     cookingMethods: string[];
     cuisines: string[];
   }>;
+  setRecipeImageUrl(id: string, imageUrl: string): Promise<Recipe | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -63,7 +64,7 @@ export class MemStorage implements IStorage {
         mongoId,
         name: recipe.name,
         ingredients: recipe.ingredients,
-        cleanedIngredients: recipe.cleaned_ingredients || [],
+        cleanedIngredients: Array.isArray(recipe.cleaned_ingredients) ? recipe.cleaned_ingredients : [],
         totalTimeMinutes: recipe.total_time_mins,
         cuisine: recipe.cuisine,
         instructions: recipe.instructions,
@@ -110,9 +111,9 @@ export class MemStorage implements IStorage {
 
       // Filter by ingredients
       if (filters.ingredients && filters.ingredients.length > 0) {
-        const recipeIngredientsLower = recipe.cleanedIngredients.map(i => i.toLowerCase());
+        const recipeIngredientsLower = (recipe.cleanedIngredients as string[]).map((i:string) => i.toLowerCase());
         const hasAllIngredients = filters.ingredients.every(ingredient => 
-          recipeIngredientsLower.some(recipeIngr => recipeIngr.includes(ingredient.toLowerCase()))
+          recipeIngredientsLower.some((recipeIngr:string) => recipeIngr.includes(ingredient.toLowerCase()))
         );
         if (!hasAllIngredients) {
           return false;
@@ -135,6 +136,13 @@ export class MemStorage implements IStorage {
     return recipe;
   }
 
+  async setRecipeImageUrl(id: string, imageUrl: string): Promise<Recipe | undefined> {
+    const recipe = this.recipesList.find(r => r.mongoId === id);
+    if (!recipe) return undefined;
+    recipe.imageUrl = imageUrl;
+    return recipe;
+  }
+
   async getRecipeFilters(): Promise<{
     dietCategories: string[];
     ingredients: string[];
@@ -146,7 +154,7 @@ export class MemStorage implements IStorage {
     const cuisines = [...new Set(this.recipesList.map(r => r.cuisine))];
     
     // Get all unique ingredients from all recipes
-    const allIngredients = this.recipesList.flatMap(r => r.cleanedIngredients);
+    const allIngredients = this.recipesList.flatMap((r) => r.cleanedIngredients as string[]);
     const ingredients = [...new Set(allIngredients)];
     
     return {

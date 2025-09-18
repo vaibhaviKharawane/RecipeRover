@@ -5,7 +5,7 @@ import Navbar from "@/components/Navbar";
 import RecipeDetailModal from "@/components/RecipeDetailModal";
 
 export default function RecipeDetail() {
-  const { id } = useParams();
+  const { id } = useParams<{ id?: string }>();
   const [, setLocation] = useLocation();
   
   useEffect(() => {
@@ -13,7 +13,7 @@ export default function RecipeDetail() {
     // to home and opens the recipe modal through state
     setLocation('/', { 
       replace: true,
-      state: { openRecipeId: id }
+      state: { openRecipeId: id ?? null }
     });
   }, [id, setLocation]);
   
@@ -26,7 +26,7 @@ export default function RecipeDetail() {
       
       {/* Modal will be shown on the Home page after redirect */}
       <RecipeDetailModal
-        recipeId={id}
+        recipeId={id ?? null}
         isOpen={true}
         onClose={() => setLocation('/')}
       />

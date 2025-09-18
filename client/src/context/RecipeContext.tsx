@@ -37,11 +37,14 @@ interface FilterOptions {
   cuisines: string[];
 }
 
+type ArrayFilterKey = Exclude<keyof Filters, 'maxTime'>;
+
 interface RecipeContextType {
   filters: Filters;
   setFilters: React.Dispatch<React.SetStateAction<Filters>>;
   clearFilters: () => void;
-  toggleFilter: (type: keyof Filters, value: string) => void;
+  // toggleFilter only applies to the array-based filter keys (not maxTime)
+  toggleFilter: (type: ArrayFilterKey, value: string) => void;
   setMaxTime: (time: number) => void;
   filterOptions: FilterOptions | null;
   toggleLike: (recipeId: string, isLiked: boolean) => Promise<void>;
@@ -67,24 +70,26 @@ export const RecipeProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  // Fetch filter options
-  const { data: filterOptions, isLoading: loadingFilterOptions } = useQuery({
+  // Fetch filter options (typed)
+  const { data: filterOptionsData, isLoading: loadingFilterOptions } = useQuery<FilterOptions>({
     queryKey: ['/api/recipes/filters/options'],
     staleTime: Infinity, // Filter options don't change often
   });
+
+  const filterOptions = filterOptionsData ?? null;
 
   const clearFilters = () => {
     setFilters({});
   };
 
-  const toggleFilter = (type: keyof Filters, value: string) => {
+  const toggleFilter = (type: ArrayFilterKey, value: string) => {
     setFilters(prevFilters => {
-      const currentValues = prevFilters[type] || [];
-      
+      const currentValues = (prevFilters[type] as string[]) || [];
+
       if (currentValues.includes(value)) {
         return {
           ...prevFilters,
-          [type]: currentValues.filter(v => v !== value)
+          [type]: currentValues.filter((v: string) => v !== value)
         };
       } else {
         return {
