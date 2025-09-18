@@ -76,7 +76,6 @@ MongoDB collections initialized
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/6e8ed331-52ec-4027-b81f-238297594eac" />
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/2b6837cb-2d9f-48e1-a8fc-97907e065652" />
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/fef8fbeb-c8f8-4837-b661-f5a7ef0b2d0e" />
-<img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/a3edd235-52de-4101-948d-af0aeade3f71" />
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/d5386e07-88c3-44d6-a71b-1932104a7a14" />
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/f9901bdc-b9b3-43a4-8c11-5eda0429e9fb" />
 
